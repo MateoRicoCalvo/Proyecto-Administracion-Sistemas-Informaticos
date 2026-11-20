@@ -1,5 +1,40 @@
 #!/bin/bash
 
+# ejecuta un módulo con unos argumentos en un conjunto de equipos remotos
+# uso: mansible "host..." módulo "args..."
+
 # recibe tres argumentos
 test $# -eq 3 || { echo "Uso: $0 hosts módulo argumentos">&2; exit 1; }
 
+hosts=$1
+modulo=$2
+args=$3
+dir=$(dirname "$0")
+
+# localiza el módulo: tal como se indica o en el directorio de mansible
+test -f "$modulo" || modulo="$dir/$modulo"
+test -f "$modulo" -a -r "$modulo" || { echo "$0: no existe el módulo $2">&2; exit 1; }
+nombre=$(basename "$modulo")
+
+# opciones de ssh/scp: sin preguntas interactivas
+SSH_OPTS=(-o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new)
+
+for host in $hosts
+do
+    # copia el módulo y el prólogo al /tmp remoto
+    if ! scp -q "${SSH_OPTS[@]}" "$modulo" "$dir/prologue" "$host:/tmp/" < /dev/null &> /dev/null
+    then
+        echo "$host | UNREACHABLE!"
+        continue
+    fi
+    # lo ejecuta con sudo pasándole los argumentos
+    ssh -n "${SSH_OPTS[@]}" "$host" "sudo bash /tmp/$nombre $args" &> /dev/null
+    rc=$?
+    case $rc in
+        0)   echo "$host | CHANGED" ;;
+        128) echo "$host | SUCCESS" ;;
+        255) echo "$host | UNREACHABLE!" ;;
+        *)   echo "$host | FAILED (code=$rc)" ;;
+    esac
+done
+exit 0

@@ -1,0 +1,3 @@
+# discos virtuales de prueba (truncate -s 1GiB disco1 ...)
+disco*
+*.img

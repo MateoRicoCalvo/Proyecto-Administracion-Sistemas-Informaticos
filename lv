@@ -41,6 +41,99 @@ size_in_bytes() {
 }
 test $(id -u) = 0 || exit 1 # debe ejecutarse como superusuario
 . $(dirname $0)/prologue # incluye el prólogo
-# convertir el tamaño a bytes
-test $size && { size_B=$(size_in_bytes $size) || exit 2; }
 
+# valores por defecto
+state=${state:-present}
+active=${active:-true}
+force=${force:-false}
+
+# comprueba los argumentos
+test -n "$lv" || { echo "lv: falta el argumento lv" >&2; exit 2; }
+test -n "$vg" || { echo "lv: falta el argumento vg" >&2; exit 2; }
+[[ $state == present || $state == absent ]] || { echo "lv: state debe ser present o absent" >&2; exit 2; }
+[[ $active == true || $active == false ]] || { echo "lv: active debe ser true o false" >&2; exit 2; }
+[[ $force == true || $force == false ]] || { echo "lv: force debe ser true o false" >&2; exit 2; }
+if test $state = present
+then
+    test -n "$size" || { echo "lv: falta el argumento size" >&2; exit 2; }
+    # convertir el tamaño a bytes (también valida su formato)
+    size_B=$(size_in_bytes "$size") || { echo "lv: formato de size erróneo" >&2; exit 2; }
+fi
+
+# comprueba que lvm2 está instalado
+lvm2_instalado() {
+    if command -v dpkg-query &> /dev/null
+    then
+        dpkg-query -W -f='${Status}' lvm2 2> /dev/null | grep -q "install ok installed"
+    else
+        command -v lvcreate &> /dev/null
+    fi
+}
+lvm2_instalado || { echo "lv: el paquete lvm2 no está instalado" >&2; exit 3; }
+
+# comprueba que el VG existe
+vgs "$vg" &> /dev/null || { echo "lv: el VG $vg no existe" >&2; exit 4; }
+
+# determina si el LV existe
+lvs "$vg/$lv" &> /dev/null
+existe=$?
+
+if test $state = absent
+then
+    test $existe -ne 0 && exit 128 # ya no existe
+    if test $force = true
+    then
+        lvremove -f -y "$vg/$lv" &> /dev/null || exit 6
+    else
+        lvremove -y "$vg/$lv" &> /dev/null || exit 6
+    fi
+    exit 0
+fi
+
+# opciones según force (sin force se responde "no" a cualquier confirmación)
+if test $force = true
+then
+    opts="-f"
+    entrada="y"
+else
+    opts=""
+    entrada="n"
+fi
+
+# state=present y el LV no existe: se crea (queda activo)
+if test $existe -ne 0
+then
+    # -y: borra posibles firmas antiguas en el espacio recién asignado
+    lvcreate $opts -y -L "$size" -n "$lv" "$vg" &> /dev/null || exit 5
+    if test $active = false
+    then
+        lvchange -an "$vg/$lv" &> /dev/null || exit 8
+    fi
+    exit 0
+fi
+
+# state=present y el LV existe: redimensiona y activa/desactiva si es necesario
+cambios=false
+
+actual_B=$(lvs --noheadings --nosuffix --units b -o lv_size "$vg/$lv" 2> /dev/null | tr -d ' ')
+if test "$actual_B" != "$size_B"
+then
+    lvresize $opts -L "$size" "$vg/$lv" <<< "$entrada" &> /dev/null || exit 7
+    cambios=true
+fi
+
+attr=$(lvs --noheadings -o lv_attr "$vg/$lv" 2> /dev/null | tr -d ' ')
+test "${attr:4:1}" = a && activo=true || activo=false
+if test $activo != $active
+then
+    if test $active = true
+    then
+        lvchange -ay "$vg/$lv" &> /dev/null || exit 8
+    else
+        lvchange -an "$vg/$lv" &> /dev/null || exit 8
+    fi
+    cambios=true
+fi
+
+test $cambios = true && exit 0
+exit 128

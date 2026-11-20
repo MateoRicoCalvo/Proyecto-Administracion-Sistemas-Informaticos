@@ -25,3 +25,69 @@
 test $(id -u) = 0 || exit 1 # debe ejecutarse como superusuario
 . $(dirname $0)/prologue # incluye el prólogo
 
+# valores por defecto
+state=${state:-present}
+resize=${resize:-false}
+force=${force:-false}
+
+# comprueba los argumentos
+test -n "$device" || { echo "pv: falta el argumento device" >&2; exit 2; }
+[[ $state == present || $state == absent ]] || { echo "pv: state debe ser present o absent" >&2; exit 2; }
+[[ $resize == true || $resize == false ]] || { echo "pv: resize debe ser true o false" >&2; exit 2; }
+[[ $force == true || $force == false ]] || { echo "pv: force debe ser true o false" >&2; exit 2; }
+
+# comprueba que lvm2 está instalado
+lvm2_instalado() {
+    if command -v dpkg-query &> /dev/null
+    then
+        dpkg-query -W -f='${Status}' lvm2 2> /dev/null | grep -q "install ok installed"
+    else
+        command -v pvcreate &> /dev/null
+    fi
+}
+lvm2_instalado || { echo "pv: el paquete lvm2 no está instalado" >&2; exit 3; }
+
+# comprueba que el dispositivo existe y es de bloques
+test -b "$device" && lsblk "$device" &> /dev/null || { echo "pv: $device no existe o no es un dispositivo de bloques" >&2; exit 4; }
+
+# tamaño del PV en bytes
+pv_size() {
+    pvs --noheadings --nosuffix --units b -o pv_size "$device" 2> /dev/null | tr -d ' '
+}
+
+# determina si el dispositivo ya es un PV
+pvs "$device" &> /dev/null
+es_pv=$?
+
+if test $state = present
+then
+    if test $es_pv -ne 0
+    then
+        # crear el PV; sin force se responde "no" a cualquier confirmación
+        if test $force = true
+        then
+            pvcreate -f -y "$device" &> /dev/null || exit 5
+        else
+            pvcreate "$device" <<< "n" &> /dev/null || exit 5
+        fi
+        exit 0
+    fi
+
+    # ya es un PV: solo se redimensiona si se pide
+    test $resize = true || exit 128
+    antes=$(pv_size)
+    pvresize -y "$device" &> /dev/null || exit 7
+    despues=$(pv_size)
+    test "$antes" = "$despues" && exit 128
+    exit 0
+else
+    test $es_pv -ne 0 && exit 128 # ya no es un PV
+    # eliminar el PV; con force se usa -ff para poder borrarlo aunque esté en un VG
+    if test $force = true
+    then
+        pvremove -ff -y "$device" &> /dev/null || exit 6
+    else
+        pvremove "$device" <<< "n" &> /dev/null || exit 6
+    fi
+    exit 0
+fi

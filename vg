@@ -27,3 +27,101 @@
 test $(id -u) = 0 || exit 1 # debe ejecutarse como superusuario
 . $(dirname $0)/prologue # incluye el prólogo
 
+# valores por defecto
+state=${state:-present}
+remove_extra_pvs=${remove_extra_pvs:-true}
+force=${force:-false}
+
+# comprueba los argumentos
+test -n "$vg" || { echo "vg: falta el argumento vg" >&2; exit 2; }
+[[ $state == present || $state == absent ]] || { echo "vg: state debe ser present o absent" >&2; exit 2; }
+test $state = absent -o -n "$pvs" || { echo "vg: falta el argumento pvs" >&2; exit 2; }
+[[ $remove_extra_pvs == true || $remove_extra_pvs == false ]] || { echo "vg: remove_extra_pvs debe ser true o false" >&2; exit 2; }
+[[ $force == true || $force == false ]] || { echo "vg: force debe ser true o false" >&2; exit 2; }
+
+# comprueba que lvm2 está instalado
+lvm2_instalado() {
+    if command -v dpkg-query &> /dev/null
+    then
+        dpkg-query -W -f='${Status}' lvm2 2> /dev/null | grep -q "install ok installed"
+    else
+        command -v vgcreate &> /dev/null
+    fi
+}
+lvm2_instalado || { echo "vg: el paquete lvm2 no está instalado" >&2; exit 3; }
+
+# determina si el VG existe
+vgs "$vg" &> /dev/null
+existe=$?
+
+if test $state = absent
+then
+    test $existe -ne 0 && exit 128 # ya no existe
+    # sin force se responde "no" a la confirmación (p. ej. si contiene LVs)
+    if test $force = true
+    then
+        vgremove -f "$vg" &> /dev/null || exit 6
+    else
+        vgremove "$vg" <<< "n" &> /dev/null || exit 6
+    fi
+    exit 0
+fi
+
+# state=present: comprueba todos los dispositivos (nombres canónicos y sin repetir)
+declare -A deseados
+for dev in $pvs_split
+do
+    test -b "$dev" && lsblk "$dev" &> /dev/null || { echo "vg: $dev no existe o no es un dispositivo de bloques" >&2; exit 4; }
+    deseados[$(readlink -f "$dev")]=1
+done
+
+# opciones según force (sin force se responde "no" a cualquier confirmación)
+if test $force = true
+then
+    opts="-f -y"
+    entrada=""
+else
+    opts=""
+    entrada="n"
+fi
+
+if test $existe -ne 0
+then
+    vgcreate $opts "$vg" "${!deseados[@]}" <<< "$entrada" &> /dev/null || exit 5
+    exit 0
+fi
+
+# el VG ya existe: calcula los PVs actuales
+declare -A actuales
+for dev in $(pvs --noheadings -o pv_name -S vg_name="$vg" 2> /dev/null)
+do
+    actuales[$(readlink -f "$dev")]=1
+done
+
+# PVs que hay que añadir y, en su caso, eliminar
+nuevos=()
+for dev in "${!deseados[@]}"
+do
+    test -n "${actuales[$dev]}" || nuevos+=("$dev")
+done
+sobrantes=()
+if test $remove_extra_pvs = true
+then
+    for dev in "${!actuales[@]}"
+    do
+        test -n "${deseados[$dev]}" || sobrantes+=("$dev")
+    done
+fi
+
+test ${#nuevos[@]} -eq 0 -a ${#sobrantes[@]} -eq 0 && exit 128 # sin cambios
+
+# una única llamada a vgextend y otra a vgreduce como máximo
+if test ${#nuevos[@]} -gt 0
+then
+    vgextend $opts "$vg" "${nuevos[@]}" <<< "$entrada" &> /dev/null || exit 7
+fi
+if test ${#sobrantes[@]} -gt 0
+then
+    vgreduce "$vg" "${sobrantes[@]}" &> /dev/null || exit 7
+fi
+exit 0

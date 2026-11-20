@@ -1,1 +1,88 @@
 #!/bin/bash
+
+# ejecuta un playbook de mansible
+# uso: mansible-playbook fich_playbook
+#
+# formato del playbook:
+#   primera línea: equipos separados por espacios
+#   resto de líneas: nombre_tarea módulo arg1=val1 [arg2=val2 ...]
+
+test $# -eq 1 || { echo "Uso: $0 fich_playbook">&2; exit 1; }
+test -f "$1" -a -r "$1" || { echo "$0: $1 no es un fichero normal con permiso de lectura">&2; exit 2; }
+
+playbook=$1
+dir=$(dirname "$0")
+SEP="*********************************************"
+
+# opciones de ssh/scp: sin preguntas interactivas
+SSH_OPTS=(-o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new)
+
+# se lee el fichero completo para que ssh/scp no consuman su contenido
+mapfile -t lineas < "$playbook"
+hosts=(${lineas[0]%$'\r'})
+
+# contabilidad por equipo
+declare -A ok changed unreachable failed
+for host in "${hosts[@]}"
+do
+    ok[$host]=0; changed[$host]=0; unreachable[$host]=0; failed[$host]=0
+done
+
+echo "PLAY [$playbook] $SEP"
+echo
+
+for linea in "${lineas[@]:1}"
+do
+    linea=${linea%$'\r'}
+    read -r tarea modulo args <<< "$linea"
+
+    # comprueba el formato: nombre, módulo y al menos un argumento
+    test -z "$tarea" && continue # línea vacía
+    if test -z "$modulo" -o -z "$args"
+    then
+        echo "$0: línea con formato erróneo: $linea">&2
+        continue
+    fi
+    # el módulo debe ser un fichero ejecutable (tal cual o en el directorio del mandato)
+    test -f "$modulo" -a -x "$modulo" || modulo="$dir/$modulo"
+    if ! test -f "$modulo" -a -x "$modulo"
+    then
+        echo "$0: el módulo de la tarea $tarea no es un fichero ejecutable">&2
+        continue
+    fi
+    nombre=$(basename "$modulo")
+
+    echo "TASK [$tarea] $SEP"
+    for host in "${hosts[@]}"
+    do
+        if ! scp -q "${SSH_OPTS[@]}" "$modulo" "$dir/prologue" "$host:/tmp/" < /dev/null &> /dev/null
+        then
+            rc=255
+        else
+            ssh -n "${SSH_OPTS[@]}" "$host" "sudo bash /tmp/$nombre $args" &> /dev/null
+            rc=$?
+        fi
+        case $rc in
+            0)
+                echo "changed: [$host]"
+                (( ok[$host]++ )); (( changed[$host]++ )) ;;
+            128)
+                echo "ok: [$host]"
+                (( ok[$host]++ )) ;;
+            255)
+                echo "unreachable: [$host]"
+                (( unreachable[$host]++ )) ;;
+            *)
+                echo "fatal: [$host]"
+                (( failed[$host]++ )) ;;
+        esac
+    done
+    echo
+done
+
+echo "PLAY RECAP $SEP"
+for host in "${hosts[@]}"
+do
+    echo "$host: ok=${ok[$host]} changed=${changed[$host]} unreachable=${unreachable[$host]} failed=${failed[$host]}"
+done
+exit 0
