@@ -1,0 +1,46 @@
+#!/bin/bash
+
+# módulo que crea (o elimina) un volumen lógico dentro de un grupo de volúmenes (VG)
+
+# argumentos:
+#   "lv": nombre del LV (obligatorio)
+#   "vg": nombre del VG (obligatorio)
+#   "state": "present"|"absent" (por defecto, "present")
+#   "size": tamaño del LV (obligatorio si "present"); puede usarse B, b, S, s, K, k, M, m, G, g, T, t, P, p, E, e
+#   "force": fuerza la operación de destruir un LV aunque las condiciones no lo aconsejen (p. ej. el LV tiene un sistema de ficheros y está montado); "true"|"false" (por defecto, "false")
+#    "active": si el estado del LV es activo o inactivo; "true"|"false" (aplicable solo si "present"; por defecto, "true")
+
+# valor devuelto:
+#       0 OK con cambios
+#       128 OK sin cambios
+#       1 ejecución sin ser superusuario
+#       2 error en argumentos
+#       3 error por no estar instalado el paquete requerido
+#       4 error porque no existe el VG
+#       5 error en mandato que crea el LV
+#       6 error en mandato que elimina el LV
+#       7 error en mandato que redimensiona el LV
+#       8 error en mandato que activa/desactiva el LV
+
+# requisitos:
+#       - debe estar instalado previamente el paquete lvm2
+
+size_in_bytes() {
+    size=$(tr '[a-z]' '[A-Z]' <<< $1)
+    size_B=0
+    [[ $size =~ ^[0-9]+$ ]] && size="$size"M
+    [[ $size =~ ^[0-9]+[BSKMGTPE]$ ]] || return 1 # formato erróneo
+    [[ $size =~ ^[0-9]+B$ ]] && size=$(sed 's/B//' <<< $size)
+    [[ $size =~ ^[0-9]+S$ ]] && size=$(( $(sed 's/S//' <<< $size) * 512))
+    size_B=$(numfmt --from=iec $size)
+    test $(( size_B % 512 )) -ne 0 && return 1 # debe ser múltiplo de 512
+    ext_size=$(( 2 ** 22 ))
+    size_B=$(( ((size_B + $ext_size - 1) / $ext_size) * $ext_size ))
+    echo $size_B
+    return 0
+}
+test $(id -u) = 0 || exit 1 # debe ejecutarse como superusuario
+. $(dirname $0)/prologue # incluye el prólogo
+# convertir el tamaño a bytes
+test $size && { size_B=$(size_in_bytes $size) || exit 2; }
+

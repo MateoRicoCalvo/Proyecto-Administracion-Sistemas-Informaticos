@@ -1,0 +1,29 @@
+#!/bin/bash
+
+# módulo que crea (o elimina) un grupo de volúmenes (VG)
+# a partir de un conjunto de volúmenes físicos
+
+# argumentos:
+#   "vg": nombre del VG (obligatorio)
+#   "state": "present"|"absent" (por defecto, "present")
+#   "pvs": lista de volúmenes físicos (obligatorio si "present")
+#   "remove_extra_pvs": elimina del VG los PVs que no estén en "pvs"; "true"|"false" (aplicable solo si "present"; por defecto, "true")
+#   "force": fuerza la operación de crear o destruir un VG aunque las condiciones no lo aconsejen (p. ej. si hay un LV sobre el VG); "true"|"false" (por defecto, "false")
+
+# valor devuelto:
+#       0 OK con cambios
+#       128 OK sin cambios
+#       1 ejecución sin ser superusuario
+#       2 error en argumentos
+#       3 error por no estar instalado el paquete requerido
+#       4 error porque alguno de los volúmenes físicos no existe o no es un volumen físico
+#       5 error en mandato que crea el VG
+#       6 error en mandato que elimina el VG
+#       7 error en mandato que reajusta el VG
+
+# requisitos:
+#     - debe estar instalado previamente el paquete lvm2
+
+test $(id -u) = 0 || exit 1 # debe ejecutarse como superusuario
+. $(dirname $0)/prologue # incluye el prólogo
+

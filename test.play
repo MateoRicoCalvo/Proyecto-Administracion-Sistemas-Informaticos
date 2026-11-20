@@ -1,0 +1,6 @@
+172.17.0.2 172.17.0.3 172.17.0.10
+crea_usuario user name=test_user state=present
+recrea_usuario user name=test_user state=present
+crea_usuario_error user name=12345 state=present
+elimina_usuario user name=test_user state=absent
+reelimina_usuario user name=test_user state=absent

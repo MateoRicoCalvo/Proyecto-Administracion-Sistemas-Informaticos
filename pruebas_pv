@@ -1,0 +1,37 @@
+# No es un script: está ideado para copiar y pegar cada mandato en una consola.
+# Asume que la variable DISCO1 contiene el nombre del dispositivo de bloques.
+
+./pv  # no SUDO; error 1
+sudo ./pv state=present # no device; error 2
+sudo ./pv state=yes device=$DISCO1 # state erróneo; error 2
+sudo ./pv state=present device=$DISCO1 resize=yes # resize erróneo; error 2
+sudo ./pv state=present device=$DISCO1 force=yes # force erróneo; error 2
+
+# asumiendo que LVM2 no está instalado
+sudo ./pv state=present device=$DISCO1 # lvm2 no instalado; error 3
+
+# instale lvm2
+
+sudo ./pv state=present device=noexiste # device no existe; error 4
+sudo ./pv state=present device=/etc/passwd # device no es un dispositivo de bloques; error 4
+sudo ./pv state=present device=$DISCO1 # crea el PV; retorna 0
+sudo ./pv state=present device=$DISCO1 # ya creado; retorna 128
+
+# extienda el disco $DISCO1
+
+sudo ./pv device=$DISCO1 # retorna 128
+sudo ./pv device=$DISCO1 resize=false # retorna 128
+sudo ./pv device=$DISCO1 resize=true # retorna 0
+sudo ./pv device=$DISCO1 resize=true # retorna 128
+sudo ./pv state=absent device=$DISCO1 # elimina el PV; retorna 0 
+sudo ./pv state=absent device=$DISCO1 # ya eliminado el PV; retorna 128 
+
+# probando force: crea un grupo de volúmenes
+sudo vgcreate VG $DISCO1
+sudo ./pv state=absent device=$DISCO1 # error al elimimarlo; error 6
+sudo ./pv state=absent device=$DISCO1 force=true # retorna 0
+ 
+
+
+
+

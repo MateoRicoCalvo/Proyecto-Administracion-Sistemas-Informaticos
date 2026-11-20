@@ -1,0 +1,5 @@
+#!/bin/bash
+
+# recibe tres argumentos
+test $# -eq 3 || { echo "Uso: $0 hosts módulo argumentos">&2; exit 1; }
+

@@ -1,0 +1,29 @@
+# No es un script: está ideado para copiar y pegar cada mandato en una consola.
+# Asume que la variable DISCO1 contiene el nombre del dispositivo de bloques.
+#
+./lv  # no SUDO; error 1
+sudo ./lv state=present # no lv; error 2
+sudo ./lv state=present lv=LV1 # no vg; error 2
+sudo ./lv state=present lv=LV1 vg=VG1 # falta size; error 2
+sudo ./lv state=yes lv=LV1 vg=VG1 # state erróneo; error 2
+sudo ./lv state=present lv=LV1 vg=VG1 force=yes # force erróneo; error 2
+# asumiendo que LVM2 no está instalado
+sudo ./lv state=present lv=LV1 vg=VG1 size=128M # lvm2 no instalado; error 3
+
+# instale lvm2; recuerde que si está usando Docker una vez completada la instalación debe incluir en el fichero /etc/lvm/lvm.conf esta dos líneas:
+udev_sync = 0
+udev_rules = 0
+
+sudo ./lv state=present lv=LV1 vg=VG1 size=128M # vg no existe; error 4
+# se crea directamente un VG (para no depender del módulo previo)
+sudo vgcreate VG1 $DISCO1  
+
+sudo ./lv state=present lv=LV1 vg=VG1 size=128M # crea el LV; retorna 0
+sudo ./lv state=present lv=LV1 vg=VG1 size=128M # LV ya creado con mismo tamaño; retorna 128
+sudo ./lv state=present lv=LV1 vg=VG1 size=256M # redimensiona el LV; retorna 0
+sudo ./lv state=present lv=LV1 vg=VG1 size=256M # mantiene mismo tamaño; retorna 128
+sudo ./lv state=present lv=LV1 vg=VG1 size=256M active=false # desactiva LV; retorna 0
+sudo ./lv state=present lv=LV1 vg=VG1 size=256M active=false # ya desactivado; retorna 128
+sudo ./lv state=present lv=LV1 vg=VG1 size=256M active=true # reactiva LV; retorna 0
+sudo ./lv state=absent lv=LV1 vg=VG1 # elimina LV; retorna 0
+sudo ./lv state=absent lv=LV1 vg=VG1 # ya eliminado; retorna 128

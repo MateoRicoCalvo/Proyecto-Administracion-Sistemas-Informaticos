@@ -1,0 +1,25 @@
+# No es un script: está ideado para copiar y pegar cada mandato en una consola.
+# Asume que las variables DISCO1, DISCO2 y DISCO3 contienen los nombres de los dispositivos de bloques.
+#
+./vg  # no SUDO; error 1
+echo $?
+sudo ./vg state=present # no vg; error 2
+sudo ./vg state=present vg=VG # no pvs; error 2
+sudo ./vg state=yes vg=VG pvs=$DISCO1 # state erróneo; error 2
+sudo ./vg state=present vg=VG pvs=$DISCO1 remove_extra_pvs=yes # remove_extra_pvs erróneo; error 2
+sudo ./vg state=present vg=VG pvs=$DISCO1 force=yes # force erróneo; error 2
+# asumiendo que LVM2 no está instalado
+sudo ./vg state=present vg=VG pvs=$DISCO1 # lvm2 no instalado; error 3
+
+# instale lvm2
+
+sudo ./vg state=present vg=VG pvs=$DISCO1,noexiste,$DISCO2 # un dispo no existe; error 4
+sudo ./vg state=present vg=VG pvs=$DISCO1,/etc/passwd # un dispo no es de bloques; error 4
+sudo ./vg state=present vg=VG pvs=$DISCO1,$DISCO2 # crea el VG con 2 PV; retorna 0
+sudo ./vg state=present vg=VG pvs=$DISCO2,$DISCO1 # ya creado; retorna 128
+sudo ./vg state=present vg=VG pvs=$DISCO3,$DISCO1 # quedarán $DISCO1 y DISCO3; retorna 0
+sudo ./vg state=present vg=VG pvs=$DISCO1,$DISCO2 # quedarán $DISCO1 y DISCO2; retorna 0
+sudo ./vg state=present vg=VG pvs=$DISCO3,$DISCO1 remove_extra_pvs=false # estarán los 3; retorna 0
+sudo ./vg state=present vg=VG pvs=$DISCO3 remove_extra_pvs=false # seguirán los 3; retorna 128
+sudo ./vg state=absent vg=VG # elimina el VG; retorna 0 
+sudo ./vg state=absent vg=VG # ya eliminado el VG; retorna 128
